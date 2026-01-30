@@ -1,0 +1,13 @@
+[Unit]
+Description=Gunicorn instance to serve Chatbot Panel
+After=network.target
+
+[Service]
+User=root
+Group=www-data
+WorkingDirectory=/root/chatbot_panel
+Environment="PATH=/root/chatbot_panel/venv/bin"
+ExecStart=/root/chatbot_panel/venv/bin/gunicorn --workers 3 --bind unix:chatbot_panel.sock -m 007 app:app
+
+[Install]
+WantedBy=multi-user.target
