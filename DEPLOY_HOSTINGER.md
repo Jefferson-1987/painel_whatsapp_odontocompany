@@ -8,7 +8,7 @@ Acesse sua VPS via SSH e atualize o sistema:
 sudo apt update && sudo apt upgrade -y
 sudo apt install python3-pip python3-venv nginx git -y
 ```
-    
+
 ## 2. Configuração do Projeto
 Crie a pasta do projeto e suba seus arquivos (ou use git):
 ```bash

@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Chatbot Control</title>
+    <title>Dashboard Pro - Chatbot Control</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <style>
         .status-waiting { background-color: #fee2e2; border-left: 4px solid #ef4444; }
         .status-active { background-color: #f0fdf4; border-left: 4px solid #22c55e; }
@@ -18,11 +19,11 @@
     <nav class="bg-white shadow-sm mb-8">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16 items-center">
-                <h1 class="text-xl font-bold text-gray-800">Painel de Atendimento WhatsApp</h1>
+                <h1 class="text-xl font-bold text-gray-800">Painel de Atendimento Real-Time</h1>
                 <div class="flex items-center space-x-4">
-                    <span id="connection-status" class="text-xs text-green-500 flex items-center">
-                        <span class="h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                        Conectado
+                    <span id="connection-status" class="text-xs text-gray-400 flex items-center">
+                        <span id="status-dot" class="h-2 w-2 bg-gray-400 rounded-full mr-2"></span>
+                        <span id="status-text">Desconectado</span>
                     </span>
                     <a href="{{ url_for('logout') }}" class="text-gray-600 hover:text-red-600 font-medium">Sair</a>
                 </div>
@@ -36,66 +37,68 @@
         <div class="mb-6 flex justify-between items-end">
             <div>
                 <h2 class="text-lg font-semibold text-gray-700">Lista de Leads</h2>
-                <p class="text-sm text-gray-500">Atualização automática a cada 10 segundos.</p>
+                <p class="text-sm text-gray-500">Sincronizado via WebSockets (Sem delay).</p>
             </div>
             <div class="text-xs text-gray-400" id="last-update">Última atualização: --:--:--</div>
         </div>
 
         <div id="leads-container" class="grid grid-cols-1 gap-4">
-            <!-- Leads serão inseridos aqui via JavaScript -->
             <div class="text-center py-12">
-                <p class="text-gray-500">Carregando leads...</p>
+                <p class="text-gray-500">Conectando ao servidor...</p>
             </div>
         </div>
     </main>
 
     <script>
+        const socket = io();
         let currentLeads = [];
-        let firstLoad = true;
         const notificationSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+
+        socket.on('connect', () => {
+            document.getElementById('status-dot').className = 'h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse';
+            document.getElementById('status-text').innerText = 'Conectado (Real-time)';
+            fetchLeads();
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('status-dot').className = 'h-2 w-2 bg-red-500 rounded-full mr-2';
+            document.getElementById('status-text').innerText = 'Desconectado';
+        });
+
+        // Escuta atualizações em tempo real
+        socket.on('new_lead_update', (data) => {
+            console.log('Novo lead recebido:', data);
+            notificationSound.play().catch(e => console.log("Áudio bloqueado"));
+            fetchLeads(); // Recarrega a lista quando algo novo chega
+        });
+
+        socket.on('refresh_list', () => {
+            fetchLeads();
+        });
 
         async function fetchLeads() {
             try {
                 const response = await fetch('/api/leads');
                 const data = await response.json();
-                
                 if (data.success) {
                     updateLeadsUI(data.leads);
                     document.getElementById('last-update').innerText = `Última atualização: ${new Date().toLocaleTimeString()}`;
-                    document.getElementById('connection-status').innerHTML = '<span class="h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>Conectado';
-                } else {
-                    showError('Erro ao carregar leads: ' + data.error);
                 }
             } catch (error) {
-                console.error('Erro:', error);
-                document.getElementById('connection-status').innerHTML = '<span class="h-2 w-2 bg-red-500 rounded-full mr-2"></span>Erro de Conexão';
+                console.error('Erro ao buscar leads:', error);
             }
         }
 
         function updateLeadsUI(leads) {
             const container = document.getElementById('leads-container');
-            
-            // Verificar se há novos leads aguardando atendimento
-            if (!firstLoad) {
-                const newWaitingLeads = leads.filter(l => !l.active && !currentLeads.find(cl => cl.phone === l.phone && !cl.active));
-                if (newWaitingLeads.length > 0) {
-                    notificationSound.play().catch(e => console.log("Áudio bloqueado pelo navegador"));
-                }
-            }
-
             if (leads.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center py-12 bg-white rounded-lg shadow">
-                        <p class="text-gray-500">Nenhum lead encontrado na tabela 'costumer'.</p>
-                    </div>`;
+                container.innerHTML = '<div class="text-center py-12 bg-white rounded-lg shadow"><p class="text-gray-500">Nenhum lead encontrado.</p></div>';
                 return;
             }
 
-            const html = leads.map(lead => {
-                const isNewWaiting = !firstLoad && !lead.active && !currentLeads.find(cl => cl.phone === l.phone && !cl.active);
-                return `
-                <div class="p-4 rounded-lg shadow-sm flex items-center justify-between fade-in ${lead.active ? 'status-active' : 'status-waiting'} ${!lead.active ? 'new-lead-flash' : ''}">
-                    <div class="flex items-center space-x-4">
+            const html = leads.map(lead => `
+                <div class="p-4 rounded-lg shadow-sm flex items-center justify-between fade-in ${lead.active ? 'status-active' : 'status-waiting new-lead-flash'}">
+                    <div class="flex items-center space-x-4 flex-1">
                         <div class="h-12 w-12 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold">
                             ${lead.cliente_name ? lead.cliente_name[0].toUpperCase() : '?'}
                         </div>
@@ -106,14 +109,13 @@
                                 ${lead.active ? '🤖 Chatbot Ativo' : '👤 Aguardando Humano'}
                             </span>
                             ${!lead.active && lead.summary ? `
-                                <div class="mt-3 p-3 bg-white/50 rounded border border-red-200 text-sm text-gray-700 italic">
+                                <div class="mt-3 p-3 bg-white/80 rounded border border-red-200 text-sm text-gray-700 italic shadow-inner">
                                     <strong>Resumo da IA:</strong> ${lead.summary}
                                 </div>
                             ` : ''}
                         </div>
                     </div>
-                    
-                    <div>
+                    <div class="ml-4">
                         <button onclick="toggleStatus('${lead.phone}')" 
                                 id="btn-${lead.phone}"
                                 class="px-6 py-2 rounded-md font-bold text-white transition-colors ${lead.active ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'}">
@@ -121,48 +123,17 @@
                         </button>
                     </div>
                 </div>
-            `}).join('');
+            `).join('');
 
             container.innerHTML = html;
             currentLeads = leads;
-            firstLoad = false;
         }
 
         async function toggleStatus(phone) {
             const btn = document.getElementById(`btn-${phone}`);
-            const originalText = btn.innerText;
             btn.disabled = true;
-            btn.innerText = '...';
-
-            try {
-                const response = await fetch(`/toggle_status/${phone}`, { method: 'POST' });
-                const data = await response.json();
-                
-                if (data.success) {
-                    fetchLeads(); // Atualiza imediatamente após a mudança
-                } else {
-                    alert('Erro: ' + data.error);
-                    btn.disabled = false;
-                    btn.innerText = originalText;
-                }
-            } catch (error) {
-                alert('Erro de conexão.');
-                btn.disabled = false;
-                btn.innerText = originalText;
-            }
+            await fetch(`/toggle_status/${phone}`, { method: 'POST' });
         }
-
-        function showError(msg) {
-            const container = document.getElementById('alert-container');
-            container.innerHTML = `
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-                    ${msg}
-                </div>`;
-        }
-
-        // Iniciar busca e configurar intervalo (10 segundos)
-        fetchLeads();
-        setInterval(fetchLeads, 10000);
     </script>
 </body>
 </html>
